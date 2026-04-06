@@ -13,7 +13,7 @@ impl Config {
         let input_glob = Regex::new(r"[a-zA-Z0-9._*-]+").unwrap();
 
         // A map from output name to a list of input section names that should match
-        let deser: IndexMap<String, Vec<String>> = serde_yml::from_reader(src).unwrap();
+        let deser: IndexMap<String, Vec<String>> = serde_norway::from_reader(src).unwrap();
 
         let mut outputs = vec![];
         let mut patterns = vec![];

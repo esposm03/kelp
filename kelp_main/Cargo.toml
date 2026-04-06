@@ -1,8 +1,8 @@
 [package]
-name = "kelp_link"
+name = "kelp_main"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 kelp_config = { version = "0.1.0", path = "../kelp_config" }
-kelp_format.path = "../kelp_format"
+kelp_link = { version = "0.1.0", path = "../kelp_link" }

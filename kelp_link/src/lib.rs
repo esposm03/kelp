@@ -1,5 +1,6 @@
-use std::{ffi::CStr, path::PathBuf};
+use std::{collections::HashMap, ffi::CStr, path::PathBuf};
 
+use kelp_config::Config;
 use kelp_format::{
     SymBind, SymType,
     elf::{self, Class, Endianness},
@@ -27,7 +28,6 @@ pub struct InputSym<'a> {
     pub bind: SymBind,
     pub typ: SymType,
     pub other: u8,
-    pub shndx: usize,
     pub value: usize,
     pub size: usize,
 }
@@ -41,7 +41,7 @@ pub struct InputFile<'a> {
 pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
     let parsed = kelp_format::parse(data);
     let ehdr = parsed.header;
-    assert_eq!(ehdr.typ, elf::Type::Shared, "Inputs must be .o files");
+    assert_eq!(ehdr.typ, elf::Type::Relocatable, "Inputs must be .o files");
 
     // Extract the symtab for the section headers
     assert_ne!(ehdr.shstrndx, 0, "Files with no shstrtab are not supported");
@@ -58,25 +58,35 @@ pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
     let sym_strtab = &data[sym_strtab.offset..][..sym_strtab.size];
 
     let mut sections = vec![];
-    for sec in parsed.sections {
+    for (i, sec) in parsed.sections.iter().enumerate() {
+        let name = CStr::from_bytes_until_nul(&shstrtab[sec.name..]).unwrap();
+        if sec.typ != section::Type::Progbits {
+            println!("[INFO] Skipping section {name:?} since it is not of type SHT_PROGBITS");
+            continue;
+        }
+
+        // Collect symbols related to this section
+        let mut syms = vec![];
+        for sym in &parsed.syms {
+            if sym.shndx as usize != i {
+                continue;
+            }
+            syms.push(InputSym {
+                name: CStr::from_bytes_until_nul(&sym_strtab[sym.name as usize..]).unwrap(),
+                bind: sym.bind,
+                typ: sym.typ,
+                other: sym.other,
+                value: sym.value,
+                size: sym.size,
+            });
+        }
+
         sections.push(InputSection {
-            name: CStr::from_bytes_until_nul(&shstrtab[sec.name..]).unwrap(),
+            name,
             flags: sec.flags,
             addr: sec.addr as usize,
             align: sec.align as usize,
             syms: vec![],
-        });
-    }
-
-    for sym in parsed.syms {
-        sections[sym.shndx as usize].syms.push(InputSym {
-            name: CStr::from_bytes_until_nul(&sym_strtab[sym.name as usize..]).unwrap(),
-            shndx: sym.shndx as usize,
-            bind: sym.bind,
-            typ: sym.typ,
-            other: sym.other,
-            value: sym.value,
-            size: sym.size,
         });
     }
 
@@ -93,9 +103,25 @@ pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
     }
 }
 
-pub fn merge<'a>(_: Vec<InputFile<'a>>) {
+#[derive(Default)]
+struct OutputSection<'a> {
+    sections: Vec<InputSection<'a>>,
+}
+
+pub fn merge<'a>(files: Vec<InputFile<'a>>, cfg: Config) {
     // Merge all sections that have same flags and "similar" name
-    // TBD what similar means
+    let mut sects = HashMap::<_, OutputSection>::new();
+
+    for file in files {
+        for sec in file.sections {
+            if let Some(out) = cfg.output_section(sec.name) {
+                let out = sects.entry(out).or_default();
+                out.sections.push(sec);
+            } else {
+                println!("[WARN] Ignoring section {:?}", sec.name);
+            }
+        }
+    }
 
     // Group them by flags, and assign virtual addresses and segments
 }

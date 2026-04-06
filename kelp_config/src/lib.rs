@@ -1,5 +1,6 @@
 use std::ffi::CStr;
 
+use indexmap::IndexMap;
 use regex::{Regex, bytes::RegexSet};
 
 pub struct Config {
@@ -12,7 +13,7 @@ impl Config {
         let input_glob = Regex::new(r"[a-zA-Z0-9._*-]+").unwrap();
 
         // A map from output name to a list of input section names that should match
-        let deser: Vec<(String, Vec<String>)> = serde_yml::from_reader(src).unwrap();
+        let deser: IndexMap<String, Vec<String>> = serde_yml::from_reader(src).unwrap();
 
         let mut outputs = vec![];
         let mut patterns = vec![];
@@ -20,7 +21,7 @@ impl Config {
             for pat in pats {
                 outputs.push(out.clone());
                 assert!(input_glob.is_match(&pat));
-                let regex = format!("^{}$", pat.replace(".", r"\.").replace("*", ".*"));
+                let regex = format!("^{}$", pat.replace(".", r"\.").replace("*", "[^.]*"));
                 patterns.push(regex);
             }
         }
@@ -36,5 +37,11 @@ impl Config {
             .iter()
             .next()
             .map(|i| self.outputs[i].as_str())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::parse(include_bytes!("default_config.yml").as_slice())
     }
 }

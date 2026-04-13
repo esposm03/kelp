@@ -6,6 +6,7 @@ use kelp_format::{
     elf::{self, Class, Endianness},
     section,
 };
+use log::{info, warn};
 
 pub struct ElfIdent {
     pub class: Class,
@@ -40,28 +41,20 @@ pub struct InputFile<'a> {
 
 pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
     let parsed = kelp_format::parse(data);
-    let ehdr = parsed.header;
-    assert_eq!(ehdr.typ, elf::Type::Relocatable, "Inputs must be .o files");
+    assert_eq!(
+        parsed.header.typ,
+        elf::Type::Relocatable,
+        "Inputs must be .o files"
+    );
 
-    // Extract the symtab for the section headers
-    assert_ne!(ehdr.shstrndx, 0, "Files with no shstrtab are not supported");
-    let shstrtab = &parsed.sections[ehdr.shstrndx as usize];
-    assert_eq!(shstrtab.flags, section::Flags::empty());
-    assert_eq!(shstrtab.typ, section::Type::Strtab);
-    let shstrtab = &data[shstrtab.offset..][..shstrtab.size];
-
-    // Extract the strtab for the symbol table
-    assert_ne!(parsed.symtab_strtab, 0, "Found file with no symtab");
-    let sym_strtab = &parsed.sections[parsed.symtab_strtab];
-    assert_eq!(sym_strtab.flags, section::Flags::empty());
-    assert_eq!(sym_strtab.typ, section::Type::Strtab);
-    let sym_strtab = &data[sym_strtab.offset..][..sym_strtab.size];
+    let shstrtab = extract_strtab(data, &parsed, parsed.header.shstrndx as usize);
+    let sym_strtab = extract_strtab(data, &parsed, parsed.symtab_strtab);
 
     let mut sections = vec![];
     for (i, sec) in parsed.sections.iter().enumerate() {
         let name = CStr::from_bytes_until_nul(&shstrtab[sec.name..]).unwrap();
         if sec.typ != section::Type::Progbits {
-            println!("[INFO] Skipping section {name:?} since it is not of type SHT_PROGBITS");
+            info!("Skipping section {name:?} since it is not of type SHT_PROGBITS");
             continue;
         }
 
@@ -93,14 +86,23 @@ pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
     InputFile {
         name: path,
         ident: ElfIdent {
-            class: ehdr.class,
-            endianness: ehdr.endianness,
-            os_abi: ehdr.os_abi,
-            abi_version: ehdr.abi_version,
-            machine: ehdr.machine,
+            class: parsed.header.class,
+            endianness: parsed.header.endianness,
+            os_abi: parsed.header.os_abi,
+            abi_version: parsed.header.abi_version,
+            machine: parsed.header.machine,
         },
         sections,
     }
+}
+
+#[track_caller]
+fn extract_strtab<'a>(data: &'a [u8], parsed: &kelp_format::ElfFile<'_>, idx: usize) -> &'a [u8] {
+    assert_ne!(idx, 0, "Files with no shstrtab are not supported");
+    let shstrtab = &parsed.sections[idx];
+    assert_eq!(shstrtab.flags, section::Flags::empty());
+    assert_eq!(shstrtab.typ, section::Type::Strtab);
+    &data[shstrtab.offset..][..shstrtab.size]
 }
 
 #[derive(Default)]
@@ -118,7 +120,7 @@ pub fn merge<'a>(files: Vec<InputFile<'a>>, cfg: Config) {
                 let out = sects.entry(out).or_default();
                 out.sections.push(sec);
             } else {
-                println!("[WARN] Ignoring section {:?}", sec.name);
+                warn!("Ignoring section {:?}", sec.name);
             }
         }
     }

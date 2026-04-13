@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 kelp_config = { version = "0.1.0", path = "../kelp_config" }
 kelp_link = { version = "0.1.0", path = "../kelp_link" }
+log = "0.4.29"
+pretty_env_logger = "0.5.0"

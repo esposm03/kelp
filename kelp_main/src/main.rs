@@ -2,10 +2,14 @@ use std::{env, fs, path::PathBuf};
 
 use kelp_config::Config;
 use kelp_link::{merge, process_input_file};
+use log::info;
 
 fn main() {
+    pretty_env_logger::init();
+
     let mut files = vec![];
     for path in env::args().skip(1) {
+        info!("Processing {path:?}");
         let data = fs::read(&path).unwrap();
         files.push((PathBuf::from(path), data));
     }

@@ -1,7 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 use kelp_config::Config;
-use kelp_link::{merge, process_input_file};
+use kelp_link::{alloc_segments, merge_sections, process_input_file};
 use log::info;
 
 fn main() {
@@ -20,5 +20,6 @@ fn main() {
     }
 
     let cfg = Config::default();
-    merge(inputs, cfg);
+    let mut sections = merge_sections(inputs, &cfg);
+    alloc_segments(&mut sections);
 }

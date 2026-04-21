@@ -1,10 +1,14 @@
-use std::{collections::HashMap, ffi::CStr, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::CStr,
+    path::PathBuf,
+};
 
 use kelp_config::Config;
 use kelp_format::{
     SymBind, SymType,
     elf::{self, Class, Endianness},
-    section,
+    section::{self, Flags as Shf},
 };
 use log::{info, warn};
 
@@ -16,6 +20,7 @@ pub struct ElfIdent {
     pub machine: u16,
 }
 
+#[derive(Debug)]
 pub struct InputSection<'a> {
     pub name: &'a CStr,
     pub flags: section::Flags,
@@ -24,6 +29,7 @@ pub struct InputSection<'a> {
     pub syms: Vec<InputSym<'a>>,
 }
 
+#[derive(Debug)]
 pub struct InputSym<'a> {
     pub name: &'a CStr,
     pub bind: SymBind,
@@ -52,6 +58,11 @@ pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
 
     let mut sections = vec![];
     for (i, sec) in parsed.sections.iter().enumerate() {
+        assert!(
+            !sec.flags.contains(section::Flags::LinkOrder),
+            "SHF_LINKORDER is not yet implemented"
+        );
+
         let name = CStr::from_bytes_until_nul(&shstrtab[sec.name..]).unwrap();
         if sec.typ != section::Type::Progbits {
             info!("Skipping section {name:?} since it is not of type SHT_PROGBITS");
@@ -105,19 +116,24 @@ fn extract_strtab<'a>(data: &'a [u8], parsed: &kelp_format::ElfFile<'_>, idx: us
     &data[shstrtab.offset..][..shstrtab.size]
 }
 
-#[derive(Default)]
-struct OutputSection<'a> {
+pub struct OutputSection<'a> {
+    name: &'a str,
     sections: Vec<InputSection<'a>>,
+    flags: section::Flags,
 }
 
-pub fn merge<'a>(files: Vec<InputFile<'a>>, cfg: Config) {
-    // Merge all sections that have same flags and "similar" name
+pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<OutputSection<'a>> {
     let mut sects = HashMap::<_, OutputSection>::new();
 
     for file in files {
         for sec in file.sections {
             if let Some(out) = cfg.output_section(sec.name) {
-                let out = sects.entry(out).or_default();
+                let out = sects.entry(out).or_insert(OutputSection {
+                    name: out,
+                    sections: vec![],
+                    flags: Shf::empty(),
+                });
+                out.flags |= sec.flags;
                 out.sections.push(sec);
             } else {
                 warn!("Ignoring section {:?}", sec.name);
@@ -125,5 +141,19 @@ pub fn merge<'a>(files: Vec<InputFile<'a>>, cfg: Config) {
         }
     }
 
-    // Group them by flags, and assign virtual addresses and segments
+    sects.into_values().collect()
+}
+
+pub fn alloc_segments<'a>(sections: &mut [OutputSection<'a>]) {
+    let mut output_flags = HashSet::new();
+    for v in sections {
+        println!("{} {:?}: ", v.name, v.flags);
+        v.sections.sort_by_key(|sec| sec.align as isize * -1);
+
+        for x in &v.sections {
+            println!("{x:?}");
+            output_flags.insert(x.flags & (Shf::Alloc | Shf::Write | Shf::ExecInstr));
+        }
+    }
+    println!("Segments: {output_flags:?}");
 }

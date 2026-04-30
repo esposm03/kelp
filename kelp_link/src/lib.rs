@@ -1,14 +1,11 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ffi::CStr,
-    path::PathBuf,
-};
+use std::{cmp::max, collections::HashMap, ffi::CStr, path::PathBuf};
 
 use kelp_config::Config;
 use kelp_format::{
     SymBind, SymType,
     elf::{self, Class, Endianness},
     section::{self, Flags as Shf},
+    segment::Flags as Phf,
 };
 use log::{info, warn};
 
@@ -20,16 +17,17 @@ pub struct ElfIdent {
     pub machine: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InputSection<'a> {
     pub name: &'a CStr,
     pub flags: section::Flags,
     pub addr: usize,
     pub align: usize,
+    pub size: usize,
     pub syms: Vec<InputSym<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InputSym<'a> {
     pub name: &'a CStr,
     pub bind: SymBind,
@@ -90,6 +88,7 @@ pub fn process_input_file<'a>(path: PathBuf, data: &'a [u8]) -> InputFile<'a> {
             flags: sec.flags,
             addr: sec.addr as usize,
             align: sec.align as usize,
+            size: sec.size as usize,
             syms: vec![],
         });
     }
@@ -116,10 +115,13 @@ fn extract_strtab<'a>(data: &'a [u8], parsed: &kelp_format::ElfFile<'_>, idx: us
     &data[shstrtab.offset..][..shstrtab.size]
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OutputSection<'a> {
-    name: &'a str,
-    sections: Vec<InputSection<'a>>,
-    flags: section::Flags,
+    pub name: &'a str,
+    pub input_sections: Vec<InputSection<'a>>,
+    pub size: usize,
+    pub align: usize,
+    pub flags: section::Flags,
 }
 
 pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<OutputSection<'a>> {
@@ -130,11 +132,17 @@ pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<Out
             if let Some(out) = cfg.output_section(sec.name) {
                 let out = sects.entry(out).or_insert(OutputSection {
                     name: out,
-                    sections: vec![],
+                    input_sections: vec![],
                     flags: Shf::empty(),
+
+                    size: 0,
+                    align: 0,
                 });
                 out.flags |= sec.flags;
-                out.sections.push(sec);
+                out.align = max(out.align, sec.align);
+                out.size = align(out.size, sec.align);
+                out.size += sec.size;
+                out.input_sections.push(sec);
             } else {
                 warn!("Ignoring section {:?}", sec.name);
             }
@@ -144,16 +152,73 @@ pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<Out
     sects.into_values().collect()
 }
 
-pub fn alloc_segments<'a>(sections: &mut [OutputSection<'a>]) {
-    let mut output_flags = HashSet::new();
-    for v in sections {
-        println!("{} {:?}: ", v.name, v.flags);
-        v.sections.sort_by_key(|sec| sec.align as isize * -1);
+pub struct OutputSegment<'a> {
+    pub sections: Vec<OutputSection<'a>>,
+    pub flags: Phf,
 
-        for x in &v.sections {
-            println!("{x:?}");
-            output_flags.insert(x.flags & (Shf::Alloc | Shf::Write | Shf::ExecInstr));
+    pub size: usize,
+    pub virtaddr: usize,
+}
+
+impl<'a> OutputSegment<'a> {
+    pub fn new(flags: Phf) -> Self {
+        Self {
+            sections: vec![],
+            flags,
+            size: 0,
+            virtaddr: 0,
         }
     }
-    println!("Segments: {output_flags:?}");
+}
+
+pub fn alloc_segments<'a>(sections: Vec<OutputSection<'a>>) -> Vec<OutputSegment<'a>> {
+    let mut output_flags = HashMap::new();
+
+    for mut sec in sections {
+        let flags = shf_to_phf(sec.flags);
+        sec.input_sections
+            .sort_by_key(|sec| sec.align as isize * -1);
+
+        let entry = output_flags
+            .entry(flags)
+            .or_insert(OutputSegment::new(flags));
+
+        entry.size = align(entry.size, sec.align);
+        entry.size += sec.size;
+        entry.sections.push(sec);
+    }
+
+    let mut virtaddr = 0x201000;
+    let mut res: Vec<_> = output_flags.into_values().collect();
+    res.sort_unstable_by_key(|seg| seg.flags);
+
+    for seg in &mut res {
+        virtaddr = align(virtaddr, 0x1000); // TODO: this should be an architecture-specific constant
+        // TODO: here we also assume that the sections have an alignment <= 0x1000
+        seg.virtaddr = virtaddr;
+    }
+
+    res
+}
+
+fn shf_to_phf(shf: Shf) -> Phf {
+    let mut res = Phf::empty();
+
+    if shf.contains(Shf::Alloc) {
+        res |= Phf::Read;
+    }
+    if shf.contains(Shf::Write) {
+        res |= Phf::Write;
+    }
+    if shf.contains(Shf::ExecInstr) {
+        res |= Phf::Exec;
+    }
+
+    res
+}
+
+fn align(what: usize, align_to: usize) -> usize {
+    let align_to = align_to.max(1);
+    let aligned = what + (align_to - 1) & !(align_to - 1);
+    aligned
 }

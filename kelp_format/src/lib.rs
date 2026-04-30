@@ -1,10 +1,12 @@
 use num_derive::FromPrimitive;
 
 pub mod section {
+    use std::fmt::Write;
+
     use num_derive::FromPrimitive;
 
     bitflags::bitflags! {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct Flags: u32 {
             const Write	           = 1 << 0;	/* Writable */
             const Alloc	           = 1 << 1;	/* Occupies memory during execution */
@@ -14,6 +16,21 @@ pub mod section {
             const InfoLink	       = 1 << 6;	/* `sh_info' contains SHT index */
             const LinkOrder	       = 1 << 7;	/* Preserve order after combining */
             const OsNonconforming  = 1 << 8;	/* Non-standard OS specific handling */
+        }
+    }
+
+    impl std::fmt::Display for Flags {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let flags = [
+                (Flags::Write, 'W'),
+                (Flags::Alloc, 'A'),
+                (Flags::ExecInstr, 'X'),
+            ];
+            for (flag, ch) in flags {
+                f.write_char(if self.contains(flag) { ch } else { ' ' })?;
+            }
+
+            Ok(())
         }
     }
 
@@ -69,6 +86,8 @@ pub mod section {
 }
 
 pub mod segment {
+    use std::fmt::Write;
+
     #[repr(u32)]
     #[derive(Clone, Copy, Debug, num_derive::FromPrimitive, PartialEq, Eq, Hash)]
     pub enum Type {
@@ -91,11 +110,22 @@ pub mod segment {
     }
 
     bitflags::bitflags! {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct Flags: u32 {
             const Read             = 1 << 2;
             const Write            = 1 << 1;
             const Exec             = 1 << 0;
+        }
+    }
+
+    impl std::fmt::Display for Flags {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let flags = [(Flags::Write, 'W'), (Flags::Read, 'R'), (Flags::Exec, 'X')];
+            for (flag, ch) in flags {
+                f.write_char(if self.contains(flag) { ch } else { ' ' })?;
+            }
+
+            Ok(())
         }
     }
 
@@ -167,7 +197,7 @@ pub struct ElfFile<'a> {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, FromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum SymBind {
     Local = 0,
     Global = 1,
@@ -175,7 +205,7 @@ pub enum SymBind {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, FromPrimitive)]
+#[derive(Clone, Copy, Debug, FromPrimitive, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SymType {
     NoType = 0,
     Object = 1,

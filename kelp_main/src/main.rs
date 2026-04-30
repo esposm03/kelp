@@ -20,6 +20,20 @@ fn main() {
     }
 
     let cfg = Config::default();
-    let mut sections = merge_sections(inputs, &cfg);
-    alloc_segments(&mut sections);
+    let sections = merge_sections(inputs, &cfg);
+    let segments = alloc_segments(sections);
+
+    for seg in segments {
+        println!(
+            "{} (0x{:x}, size 0x{:x})",
+            seg.flags, seg.virtaddr, seg.size
+        );
+
+        for sec in seg.sections {
+            println!(
+                "- {} {} (size 0x{:x}, align 0x{:x})",
+                sec.name, sec.flags, sec.size, sec.align
+            );
+        }
+    }
 }

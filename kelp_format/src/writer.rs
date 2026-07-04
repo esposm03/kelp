@@ -1,4 +1,4 @@
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use crate::elf::Class::{Class32, Class64};
 use crate::elf::Endianness::{Big as EndianBig, Little as EndianLittle};
@@ -22,6 +22,10 @@ impl Writer {
 
     pub fn seek(&mut self, off: i64) {
         self.wr.seek_relative(off).unwrap();
+    }
+
+    pub fn seek_start(&mut self, off: u64) {
+        self.wr.seek(SeekFrom::Start(off)).unwrap();
     }
 
     pub fn tell(&self) -> u64 {

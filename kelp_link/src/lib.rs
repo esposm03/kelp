@@ -1,5 +1,6 @@
 use std::{cmp::max, collections::HashMap, ffi::CStr, path::PathBuf};
 
+use indexmap::IndexMap;
 use kelp_config::Config;
 use kelp_format::{
     SymBind, SymType,
@@ -125,12 +126,12 @@ pub struct OutputSection<'a> {
 }
 
 pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<OutputSection<'a>> {
-    let mut sects = HashMap::<_, OutputSection>::new();
+    let mut sects = IndexMap::<_, OutputSection>::new();
 
     for file in files {
         for sec in file.sections {
-            if let Some(out) = cfg.output_section(sec.name) {
-                let out = sects.entry(out).or_insert(OutputSection {
+            if let Some((i, out)) = cfg.output_section(sec.name) {
+                let out = sects.entry(i).or_insert(OutputSection {
                     name: out,
                     input_sections: vec![],
                     flags: Shf::empty(),
@@ -149,7 +150,11 @@ pub fn merge_sections<'a>(files: Vec<InputFile<'a>>, cfg: &'a Config) -> Vec<Out
         }
     }
 
-    sects.into_values().collect()
+    // Sort sections like in the configuration
+    sects
+        .sorted_unstable_by(|k1, _, k2, _| k1.cmp(k2))
+        .map(|(_, v)| v)
+        .collect()
 }
 
 pub struct OutputSegment<'a> {

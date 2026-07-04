@@ -31,12 +31,12 @@ impl Config {
         Config { outputs, regexset }
     }
 
-    pub fn output_section<'a>(&'a self, section: &CStr) -> Option<&'a str> {
+    pub fn output_section<'a>(&'a self, section: &CStr) -> Option<(usize, &'a str)> {
         self.regexset
             .matches(section.to_bytes())
             .iter()
             .next()
-            .map(|i| self.outputs[i].as_str())
+            .map(|i| (i, self.outputs[i].as_str()))
     }
 }
 

@@ -1,3 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["kelp_config","kelp_format", "kelp_link", "kelp_main"]
+
+[workspace.dependencies]
+indexmap = { version = "2.13.1", features = ["serde"] }

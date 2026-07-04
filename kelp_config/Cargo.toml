@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-indexmap = { version = "2.13.1", features = ["serde"] }
+indexmap.workspace = true
 regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_norway = "0.9.42"
